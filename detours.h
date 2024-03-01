@@ -30,7 +30,7 @@ public:
 		DWORD old_protect;
 		if (!VirtualProtect(trampoline, 6, PAGE_EXECUTE_READWRITE, &old_protect))
 		{
-			printf("[CDetourHook] VirtualProtect failed, error code: 0x%X\n", GetLastError());
+			printf("[CDetourHook] VirtualProtect failed, error code: 0x%lX\n", GetLastError());
 			return;
 		}
 
@@ -39,8 +39,9 @@ public:
 		printf("[CDetourHook] Saving old instructions: [0x%X, 0x%X, 0x%X, 0x%X, 0x%X, 0x%X]\n",
 			m_original_bytes[0], m_original_bytes[1], m_original_bytes[2], m_original_bytes[3], m_original_bytes[4], m_original_bytes[5]);
 
+		const auto rel_address = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(hook_function) - reinterpret_cast<std::uintptr_t>(trampoline) - 5);
+
 		m_hook_bytes[0] = 0xE9; //jmp
-		const auto rel_address = reinterpret_cast<std::uintptr_t>(hook_function) - reinterpret_cast<std::uintptr_t>(trampoline) - 5;
 		*reinterpret_cast<std::uint32_t*>(&m_hook_bytes[1]) = rel_address;
 		m_hook_bytes[5] = 0xCC; //int3
 
@@ -49,9 +50,9 @@ public:
 
 		memcpy(trampoline, m_hook_bytes, 6);
 
-		if (VirtualProtect(trampoline, 6, old_protect, &old_protect))
+		if (!VirtualProtect(trampoline, 6, old_protect, &old_protect))
 		{
-			printf("[CDetourHook] VirtualProtect failed, error code: 0x%X\n", GetLastError());
+			printf("[CDetourHook] VirtualProtect failed, error code: 0x%lX\n", GetLastError());
 			return;
 		}
 	}
@@ -63,7 +64,7 @@ public:
 		delete[] m_hook_bytes;
 	}
 
-	void unhook()
+	void unhook() const
 	{
 		if (!m_original_function)
 		{
@@ -79,15 +80,15 @@ public:
 
 		DWORD old_protect;
 		if (!VirtualProtect(m_original_function, 6, PAGE_EXECUTE_READWRITE, &old_protect))
-			printf("[CDetourHook] unhook: VirtualProtect failed, error code: 0x%X\n", GetLastError());
+			printf("[CDetourHook] unhook: VirtualProtect failed, error code: 0x%lX\n", GetLastError());
 
 		memcpy(m_original_function, m_original_bytes, 6);
 
 		if (!VirtualProtect(m_original_function, 6, old_protect, &old_protect))
-			printf("[CDetourHook] unhook: VirtualProtect failed, error code: 0x%X\n", GetLastError());
+			printf("[CDetourHook] unhook: VirtualProtect failed, error code: 0x%lX\n", GetLastError());
 	}
 
-	void rehook()
+	void rehook() const
 	{
 		if (!m_original_function)
 		{
@@ -103,29 +104,26 @@ public:
 
 		DWORD old_protect;
 		if (!VirtualProtect(m_original_function, 6, PAGE_EXECUTE_READWRITE, &old_protect))
-			printf("[CDetourHook] rehook: VirtualProtect failed, error code: 0x%X\n", GetLastError());
+			printf("[CDetourHook] rehook: VirtualProtect failed, error code: 0x%lX\n", GetLastError());
 
 		memcpy(m_original_function, m_hook_bytes, 6);
 
 		if (!VirtualProtect(m_original_function, 6, old_protect, &old_protect))
-			printf("[CDetourHook] rehook: VirtualProtect failed, error code: 0x%X\n", GetLastError());
+			printf("[CDetourHook] rehook: VirtualProtect failed, error code: 0x%lX\n", GetLastError());
 	}
 
-	template<typename fn = void*>
-	fn get_original_function()
+	template<typename Fn = void*>
+	Fn get_original_function()
 	{
-		return reinterpret_cast<fn>(m_original_function);
+		return reinterpret_cast<Fn>(m_original_function);
 	}
 
-	template<typename ReturnType, typename fn, typename... Args>
+	template<typename ReturnType, typename Fn, typename... Args>
 	ReturnType call_original(Args... args)
 	{
-		auto original = get_original_function<fn>();
+		auto original = get_original_function<Fn>();
 		if (!original)
-		{
 			printf("[CDetourHook] call_original: original is nullptr\n");
-			return;
-		}
 
 		unhook();
 		ReturnType ret = original(args...);
@@ -133,6 +131,18 @@ public:
 
 		return ret;
 	}
+
+	//template<typename Fn, typename... Args>
+	//void call_original_noreturn(Args... args)
+	//{
+	//	auto original = get_original_function<Fn>();
+	//	if (!original)
+	//		printf("[CDetourHook] call_original_noreturn: original is nullptr\n");
+
+	//	unhook();
+	//	original(args...);
+	//	rehook();
+	//}
 
 private:
 	void* m_original_function = nullptr;
